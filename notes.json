@@ -1,0 +1,5 @@
+{
+    "hello": "And God said, Let there be light: and there was\n$$\n\n\\left\\{ \n\\begin{aligned}\n&\\partial_\\alpha F^{\\alpha\\beta}=\\mu_0J^\\beta\\\\\n&\\partial_\\alpha F_{\\beta\\gamma}+\\partial_\\beta F_{\\gamma\\alpha}+\\partial_\\gamma F_{\\alpha\\beta}=0\\\\\n&\\partial_\\alpha J^\\alpha=0\n\\end{aligned}\n\\right.\n$$",
+    "latex": "test test\n$$\nE=mc^2\n$$\n\n",
+    "new test": "test test\n$$\ni\\hbar\\partial_t\\Psi=H\\Psi\n$$"
+}
