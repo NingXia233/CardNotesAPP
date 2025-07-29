@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import Qt, QUrl, QFileInfo
+from tag_map_view import TagMapWindow
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -16,8 +17,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('CardNotes')
         self.setGeometry(100, 100, 900, 700)
         self.notes_file = 'notes.json'
+        self.tag_map_file = 'tag_map_data.json'
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.js_to_run_on_load = ""
+        self.tag_map_win = None
         
         # 在UI构建前，一次性加载所有资源到内存
         self.load_katex_resources()
@@ -56,8 +59,10 @@ class MainWindow(QMainWindow):
                 self.auto_render_js = f.read()
         except FileNotFoundError as e:
             QMessageBox.critical(self, "Fatal Error", f"Could not load KaTeX resource file: {e}\nPlease ensure the 'katex' folder is complete and in the same directory as the script.")
+            sys.exit(app.exec())
         except Exception as e:
             QMessageBox.critical(self, "Fatal Error", f"An unexpected error occurred while loading KaTeX resources: {e}")
+            sys.exit(app.exec())
 
     def init_ui(self):
         central_widget = QWidget()
@@ -96,10 +101,13 @@ class MainWindow(QMainWindow):
         delete_note_btn.clicked.connect(self.delete_note)
         tag_note_btn = QPushButton("Tag")
         tag_note_btn.clicked.connect(self.manage_tags)
+        tag_map_btn = QPushButton("Tag Map")
+        tag_map_btn.clicked.connect(self.open_tag_map)
         button_layout.addWidget(new_note_btn)
         button_layout.addWidget(rename_note_btn)
         button_layout.addWidget(delete_note_btn)
         button_layout.addWidget(tag_note_btn)
+        button_layout.addWidget(tag_map_btn)
         left_layout.addWidget(button_widget)
 
         # --- Right Panel (Editor and Preview) ---
@@ -345,6 +353,11 @@ class MainWindow(QMainWindow):
             self.save_notes()
             self.display_note_content(current_item, None) # 刷新标签显示
             self.filter_notes() # 如果搜索内容涉及标签，列表需要更新
+            
+            # 如果标签图窗口是打开的，则更新它
+            if self.tag_map_win and self.tag_map_win.isVisible():
+                all_tags = self._get_all_tags()
+                self.tag_map_win.update_tags(all_tags)
 
     def filter_notes(self):
         search_text = self.search_bar.text().lower()
@@ -384,6 +397,44 @@ class MainWindow(QMainWindow):
         else:
             # 如果没有匹配项，清空右侧面板
             self.display_note_content(None, None)
+
+    def load_tag_map_data(self):
+        """Loads the tag map layout data from a JSON file."""
+        if os.path.exists(self.tag_map_file):
+            try:
+                with open(self.tag_map_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                return {}
+        return {}
+
+    def save_tag_map_data(self, layout_data):
+        """Saves the tag map layout data to a JSON file."""
+        try:
+            with open(self.tag_map_file, 'w', encoding='utf-8') as f:
+                json.dump(layout_data, f, ensure_ascii=False, indent=4)
+        except IOError as e:
+            QMessageBox.critical(self, "Error", f"Could not save tag map data: {e}")
+
+    def _get_all_tags(self):
+        """Helper function to get all unique tags from notes."""
+        all_tags = set()
+        for note in self.notes_data.values():
+            for tag in note.get("tags", []):
+                all_tags.add(tag)
+        return list(all_tags)
+
+    def open_tag_map(self):
+        """打开或更新标签图窗口。"""
+        all_tags = self._get_all_tags()
+
+        if self.tag_map_win and self.tag_map_win.isVisible():
+            self.tag_map_win.update_tags(all_tags)
+            self.tag_map_win.activateWindow()
+        else:
+            layout_data = self.load_tag_map_data()
+            self.tag_map_win = TagMapWindow(all_tags, layout_data, self.save_tag_map_data)
+            self.tag_map_win.show()
 
 
 if __name__ == '__main__':
