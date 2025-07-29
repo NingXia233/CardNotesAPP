@@ -10,27 +10,48 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import Qt, QUrl, QFileInfo
 from tag_map_view import TagMapWindow
 
+# Helper function to determine the correct path for resources
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle('CardNotes')
         self.setGeometry(100, 100, 900, 700)
-        self.notes_file = 'notes.json'
-        self.tag_map_file = 'tag_map_data.json'
-        self.script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Determine the base path for read/write data files
+        if getattr(sys, 'frozen', False):
+            # If the application is run as a bundle, the data files should be
+            # in the same directory as the executable
+            self.data_path = os.path.dirname(sys.executable)
+        else:
+            # In a normal environment, the data files are in the script's directory
+            self.data_path = os.path.dirname(os.path.abspath(__file__))
+
+        self.notes_file = os.path.join(self.data_path, 'notes.json')
+        self.tag_map_file = os.path.join(self.data_path, 'tag_map_data.json')
+        
         self.js_to_run_on_load = ""
         self.tag_map_win = None
         
-        # 在UI构建前，一次性加载所有资源到内存
+        # Load resources before building the UI
         self.load_katex_resources()
         self.load_notes()
         self.init_ui()
 
-        # 连接预览区域的加载完成信号
+        # Connect the preview area's load finished signal
         self.preview_area.page().loadFinished.connect(self.on_preview_load_finished)
 
-        self.filter_notes() # 初始加载时即应用筛选（即显示所有）
+        self.filter_notes() # Apply filter on initial load (shows all)
 
         if self.notes_list.count() > 0:
             self.notes_list.setCurrentRow(0)
@@ -38,19 +59,19 @@ class MainWindow(QMainWindow):
             self.update_editor_placeholder()
 
     def on_preview_load_finished(self, ok):
-        """当预览的HTML页面加载完成后执行JS。"""
+        """Execute JS after the preview HTML page has finished loading."""
         if ok and self.js_to_run_on_load:
             self.preview_area.page().runJavaScript(self.js_to_run_on_load)
-            self.js_to_run_on_load = "" # 执行后清空
+            self.js_to_run_on_load = "" # Clear after execution
 
     def load_katex_resources(self):
-        """在程序启动时，将KaTeX的CSS和JS文件内容读入内存。"""
+        """Load KaTeX CSS and JS file contents into memory on startup."""
         self.katex_css = ""
         self.katex_js = ""
         self.auto_render_js = ""
         try:
-            # 使用脚本的绝对路径来定位资源，更稳定
-            katex_base_path = os.path.join(self.script_dir, 'katex')
+            # Use the resource_path helper to find KaTeX files
+            katex_base_path = resource_path('katex')
             with open(os.path.join(katex_base_path, 'katex.min.css'), 'r', encoding='utf-8') as f:
                 self.katex_css = f.read()
             with open(os.path.join(katex_base_path, 'katex.min.js'), 'r', encoding='utf-8') as f:
@@ -58,11 +79,11 @@ class MainWindow(QMainWindow):
             with open(os.path.join(katex_base_path, 'contrib', 'auto-render.min.js'), 'r', encoding='utf-8') as f:
                 self.auto_render_js = f.read()
         except FileNotFoundError as e:
-            QMessageBox.critical(self, "Fatal Error", f"Could not load KaTeX resource file: {e}\nPlease ensure the 'katex' folder is complete and in the same directory as the script.")
-            sys.exit(app.exec())
+            QMessageBox.critical(self, "Fatal Error", f"Could not load KaTeX resource file: {e}\nPlease ensure the 'katex' folder is complete and included in the build.")
+            sys.exit(1)
         except Exception as e:
             QMessageBox.critical(self, "Fatal Error", f"An unexpected error occurred while loading KaTeX resources: {e}")
-            sys.exit(app.exec())
+            sys.exit(1)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -132,7 +153,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(main_splitter)
 
     def get_html_template(self, content):
-        # 新模板：直接内联预先加载到内存的CSS和JS内容
+        # New template: directly inline pre-loaded CSS and JS content
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -167,11 +188,11 @@ class MainWindow(QMainWindow):
                 ]
             });
             """
-            # 将JS代码存储起来，等待页面加载完成后再执行
+            # Store the JS code to be executed after the page loads
             self.js_to_run_on_load = js_code
-            # 设置HTML内容，并提供一个正确的本地文件系统基础URL
-            # 这对于KaTeX加载字体文件至关重要
-            base_url = QUrl.fromLocalFile(os.path.join(self.script_dir, 'katex') + os.path.sep)
+            # Set the HTML content and provide a correct local file system base URL
+            # This is crucial for KaTeX to load its font files
+            base_url = QUrl.fromLocalFile(resource_path('katex') + os.path.sep)
             self.preview_area.setHtml(html_content, baseUrl=base_url)
 
     def update_editor_placeholder(self):
@@ -235,7 +256,7 @@ class MainWindow(QMainWindow):
             note = self.notes_data.get(title, {})
             self.note_editor.setText(note.get("content", ""))
             
-            # 更新标签显示
+            # Update tag display
             tags = note.get("tags", [])
             if tags:
                 self.tag_label.setText(f"Tags: {', '.join(tags)}")
@@ -246,7 +267,7 @@ class MainWindow(QMainWindow):
         else:
             self.note_editor.clear()
             self.tag_label.setText("Tags: No tags")
-            self.preview_area.setHtml("<h1>Select or create a note</h1>") # 清空预览
+            self.preview_area.setHtml("<h1>Select or create a note</h1>") # Clear preview
             self.update_editor_placeholder()
         self.note_editor.blockSignals(False)
 
@@ -268,9 +289,9 @@ class MainWindow(QMainWindow):
             
             self.notes_data[title] = {"content": "", "tags": []}
             self.save_notes()
-            self.filter_notes() # 使用filter_notes来添加并显示
+            self.filter_notes() # Use filter_notes to add and display
             
-            # 找到并选中新笔记
+            # Find and select the new note
             for i in range(self.notes_list.count()):
                 if self.notes_list.item(i).text() == title:
                     self.notes_list.setCurrentRow(i)
@@ -326,7 +347,7 @@ class MainWindow(QMainWindow):
                 del self.notes_data[title]
             
             self.save_notes()
-            self.filter_notes() # 重新筛选列表
+            self.filter_notes() # Re-filter the list
             
             if self.notes_list.count() == 0:
                 self.update_editor_placeholder()
@@ -347,36 +368,36 @@ class MainWindow(QMainWindow):
                                                 text=current_tags)
 
         if ok:
-            # 清理用户输入，分割并去除空白
+            # Clean user input, split, and remove whitespace
             new_tags = [tag.strip() for tag in new_tags_str.split(',') if tag.strip()]
             note["tags"] = new_tags
             self.save_notes()
-            self.display_note_content(current_item, None) # 刷新标签显示
-            self.filter_notes() # 如果搜索内容涉及标签，列表需要更新
+            self.display_note_content(current_item, None) # Refresh tag display
+            self.filter_notes() # The list needs to be updated if the search involves tags
             
-            # 如果标签图窗口是打开的，则更新它
+            # If the tag map window is open, update it
             if self.tag_map_win and self.tag_map_win.isVisible():
                 all_tags = self._get_all_tags()
                 self.tag_map_win.update_tags(all_tags)
 
     def filter_notes(self):
         search_text = self.search_bar.text().lower()
-        self.notes_list.blockSignals(True) # 避免列表更新时触发不必要的操作
+        self.notes_list.blockSignals(True) # Avoid triggering unnecessary actions while updating the list
         self.notes_list.clear()
         
-        # 获取当前选中的笔记标题，以便在筛选后尝试恢复选中
+        # Get the title of the currently selected note to try to restore the selection after filtering
         current_title = self.notes_list.currentItem().text() if self.notes_list.currentItem() else None
         
         sorted_titles = sorted(self.notes_data.keys())
 
         for title in sorted_titles:
             data = self.notes_data[title]
-            # 检查标题是否匹配
+            # Check if the title matches
             if search_text in title.lower():
                 self.notes_list.addItem(title)
                 continue 
             
-            # 检查标签是否匹配
+            # Check if the tags match
             tags = data.get("tags", [])
             for tag in tags:
                 if search_text in tag.lower():
@@ -385,7 +406,7 @@ class MainWindow(QMainWindow):
         
         self.notes_list.blockSignals(False)
 
-        # 尝试恢复之前的选中项，或者默认选中第一个
+        # Try to restore the previous selection, or select the first item by default
         if current_title and self.search_bar.text() == "":
              for i in range(self.notes_list.count()):
                 if self.notes_list.item(i).text() == current_title:
@@ -395,7 +416,7 @@ class MainWindow(QMainWindow):
         if self.notes_list.count() > 0:
             self.notes_list.setCurrentRow(0)
         else:
-            # 如果没有匹配项，清空右侧面板
+            # If there are no matches, clear the right panel
             self.display_note_content(None, None)
 
     def load_tag_map_data(self):
@@ -425,7 +446,7 @@ class MainWindow(QMainWindow):
         return list(all_tags)
 
     def open_tag_map(self):
-        """打开或更新标签图窗口。"""
+        """Open or update the tag map window."""
         all_tags = self._get_all_tags()
 
         if self.tag_map_win and self.tag_map_win.isVisible():

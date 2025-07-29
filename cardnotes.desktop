@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=CardNotes
+Comment=A note-taking application with LaTeX and tag map support.
+Exec=CardNotes
+Icon=cardnotes.png
+Terminal=false
+Type=Application
+Categories=Office;
